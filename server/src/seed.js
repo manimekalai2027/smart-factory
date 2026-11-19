@@ -1,19 +1,21 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { decimal, decimal128, lineTax, money, productionCost, splitGst, weightedAverageRate } from './lib/money.js';
 
 const schema = (definition) => new mongoose.Schema(definition, { timestamps: true });
 const User = mongoose.model('User', schema({ name: String, email: { type: String, unique: true }, password: String, role: String }));
-const Product = mongoose.model('Product', schema({ name: String, sku: String, category: String, packSize: String, hsn: String, price: Number, gstRate: Number, bom: [{ itemName: String, quantity: Number, unit: String }] }));
+const Decimal128 = mongoose.Schema.Types.Decimal128;
+const Product = mongoose.model('Product', schema({ name: String, sku: String, category: String, packSize: String, hsn: String, price: Decimal128, gstRate: Decimal128, bom: [{ itemName: String, quantity: Decimal128, unit: String }] }));
 const Customer = mongoose.model('Customer', schema({ name: String, type: String, state: String, gstin: String, address: String, phone: String }));
-const Inventory = mongoose.model('Inventory', schema({ name: String, category: String, unit: String, openingStock: Number, balance: Number, reorderLevel: Number, averageRate: Number }));
-const Movement = mongoose.model('Movement', schema({ item: mongoose.Schema.Types.ObjectId, itemName: String, type: String, quantity: Number, balanceAfter: Number, unitRate: Number, reference: String, note: String, user: String }));
+const Inventory = mongoose.model('Inventory', schema({ name: String, category: String, unit: String, openingStock: Decimal128, balance: Decimal128, reorderLevel: Decimal128, averageRate: Decimal128 }));
+const Movement = mongoose.model('Movement', schema({ item: mongoose.Schema.Types.ObjectId, itemName: String, unit: String, type: String, quantity: Decimal128, balanceAfter: Decimal128, unitRate: Decimal128, reference: String, note: String, user: String }));
 const Supplier = mongoose.model('Supplier', schema({ name: { type: String, unique: true }, gstin: String, state: String, phone: String, address: String, createdBy: String }));
-const Purchase = mongoose.model('Purchase', schema({ supplierName: String, itemName: String, quantity: Number, unitRate: Number, total: Number, date: Date, user: String }));
-const Production = mongoose.model('Production', schema({ product: mongoose.Schema.Types.ObjectId, productName: String, plannedOutput: Number, goodOutput: Number, damaged: Number, yieldVariance: Number, consumption: [{ itemName: String, planned: Number, actual: Number, unit: String, variance: Number }], labor: Number, utilities: Number, materialCost: Number, totalCost: Number, costPerPacket: Number, sellingPrice: Number, profitPerPacket: Number, profitMargin: Number, supervisor: String }));
-const Order = mongoose.model('Order', schema({ customer: mongoose.Schema.Types.ObjectId, customerName: String, customerAddress: String, customerState: String, customerGstin: String, salesperson: String, reviewedBy: String, reviewedAt: Date, dispatchedBy: String, dispatchedAt: Date, reviewChanges: [{ lineIndex: Number, productName: String, quantityBefore: Number, quantityAfter: Number, priceBefore: Number, priceAfter: Number }], lines: [{ product: mongoose.Schema.Types.ObjectId, productName: String, quantity: Number, price: Number, hsn: String, gstRate: Number }], status: String, total: Number, shortage: Number, note: String }));
-const Invoice = mongoose.model('Invoice', schema({ number: String, order: { type: mongoose.Schema.Types.ObjectId, unique: true }, customerName: String, customerAddress: String, customerState: String, customerGstin: String, createdBy: String, lines: [{ productName: String, quantity: Number, price: Number, hsn: String, gstRate: Number, taxable: Number, cgst: Number, sgst: Number, igst: Number, total: Number }], taxable: Number, cgst: Number, sgst: Number, igst: Number, total: Number, paid: Number, status: String }));
-const Payment = mongoose.model('Payment', schema({ invoice: mongoose.Schema.Types.ObjectId, invoiceNumber: String, customerName: String, amount: Number, method: String, date: Date, reference: String, user: String }));
+const Purchase = mongoose.model('Purchase', schema({ supplierName: String, itemName: String, quantity: Decimal128, unitRate: Decimal128, total: Decimal128, date: Date, user: String }));
+const Production = mongoose.model('Production', schema({ product: mongoose.Schema.Types.ObjectId, productName: String, plannedOutput: Number, goodOutput: Number, damaged: Number, yieldVariance: Decimal128, consumption: [{ itemName: String, planned: Decimal128, actual: Decimal128, unit: String, variance: Decimal128 }], labor: Decimal128, utilities: Decimal128, materialCost: Decimal128, totalCost: Decimal128, costPerPacket: Decimal128, sellingPrice: Decimal128, profitPerPacket: Decimal128, profitMargin: Decimal128, supervisor: String }));
+const Order = mongoose.model('Order', schema({ customer: mongoose.Schema.Types.ObjectId, customerName: String, customerAddress: String, customerState: String, customerGstin: String, salesperson: String, reviewedBy: String, reviewedAt: Date, dispatchedBy: String, dispatchedAt: Date, reviewChanges: [{ lineIndex: Number, productName: String, quantityBefore: Number, quantityAfter: Number, priceBefore: Decimal128, priceAfter: Decimal128 }], lines: [{ product: mongoose.Schema.Types.ObjectId, productName: String, quantity: Number, price: Decimal128, hsn: String, gstRate: Decimal128 }], status: String, total: Decimal128, shortage: Number, note: String }));
+const Invoice = mongoose.model('Invoice', schema({ number: String, order: { type: mongoose.Schema.Types.ObjectId, unique: true }, customerName: String, customerAddress: String, customerState: String, customerGstin: String, createdBy: String, lines: [{ productName: String, quantity: Number, price: Decimal128, hsn: String, gstRate: Decimal128, taxable: Decimal128, cgst: Decimal128, sgst: Decimal128, igst: Decimal128, total: Decimal128 }], taxable: Decimal128, cgst: Decimal128, sgst: Decimal128, igst: Decimal128, total: Decimal128, paid: Decimal128, status: String }));
+const Payment = mongoose.model('Payment', schema({ invoice: mongoose.Schema.Types.ObjectId, invoiceNumber: String, customerName: String, amount: Decimal128, method: String, date: Date, reference: String }));
 
 await mongoose.connect(process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/smartfactory_erp');
 await Promise.all([User, Product, Customer, Inventory, Movement, Supplier, Purchase, Production, Order, Invoice, Payment].map((model) => model.deleteMany({})));
@@ -53,8 +55,8 @@ const stockSeed = [
   ['Potato Chips 100 g', 'Finished goods', 'packets', 0, 0, 0, 20],
   ['Assorted Sweets 250 g', 'Finished goods', 'packets', 0, 0, 0, 10],
 ];
-const stocks = await Inventory.insertMany(stockSeed.map(([name, category, unit, openingStock, balance, averageRate, reorderLevel]) => ({ name, category, unit, openingStock, balance: openingStock + balance, averageRate, reorderLevel })));
-for (const item of stocks) await Movement.create({ item: item.id, itemName: item.name, type: 'Opening balance', quantity: item.openingStock, balanceAfter: item.openingStock, unitRate: item.averageRate, reference: `OPENING-${item.name.toUpperCase().replace(/\W+/g, '-')}`, user: 'System' });
+const stocks = await Inventory.insertMany(stockSeed.map(([name, category, unit, openingStock, balance, averageRate, reorderLevel]) => ({ name, category, unit, openingStock: decimal128(openingStock), balance: decimal128(openingStock + balance), averageRate: decimal128(averageRate), reorderLevel: decimal128(reorderLevel) })));
+for (const item of stocks) await Movement.create({ item: item.id, itemName: item.name, unit: item.unit, type: 'Opening balance', quantity: item.openingStock, balanceAfter: item.openingStock, unitRate: item.averageRate, reference: `OPENING-${item.name.toUpperCase().replace(/\W+/g, '-')}`, user: 'System' });
 const customers = await Customer.insertMany([
   { name: 'Retailer A', type: 'Retailer', state: 'Tamil Nadu', gstin: '33AABCU9603R1ZM', address: '12 Market Road, Coimbatore, Tamil Nadu', phone: '+91 98400 10001' },
   { name: 'Distributor B', type: 'Distributor', state: 'Karnataka', gstin: '29AABCU9603R1ZQ', address: '44 Wholesale Market, Bengaluru, Karnataka', phone: '+91 98400 10002' },
@@ -62,9 +64,9 @@ const customers = await Customer.insertMany([
 ]);
 const supplier = await Supplier.create({ name: 'Sri Lakshmi Flour Mills', gstin: '33AABFS1234D1ZA', state: 'Tamil Nadu', phone: '+91 422 221 1000', address: 'Coimbatore, Tamil Nadu' });
 const flour = stocks.find((item) => item.name === 'Flour');
-flour.balance = 160; flour.averageRate = 45; await flour.save();
-const purchase = await Purchase.create({ supplierName: supplier.name, itemName: 'Flour', quantity: 60, unitRate: 45, total: 2700, date: new Date(), user: 'System' });
-await Movement.create({ item: flour.id, itemName: 'Flour', type: 'Purchase receipt', quantity: 60, balanceAfter: 160, unitRate: 45, reference: `PURCHASE-${purchase.id}`, user: 'System' });
+flour.balance = decimal128(160); flour.averageRate = decimal128(45); await flour.save();
+const purchase = await Purchase.create({ supplierName: supplier.name, itemName: 'Flour', quantity: decimal128(60), unitRate: decimal128(45), total: decimal128(2700), date: new Date(), user: 'System' });
+await Movement.create({ item: flour.id, itemName: 'Flour', unit: flour.unit, type: 'Purchase receipt', quantity: decimal128(60), balanceAfter: flour.balance, unitRate: decimal128(45), reference: `PURCHASE-${purchase.id}`, user: 'System' });
 const actuals = [
   ['Flour', 40, 40, 'kg', 0], ['Cooking Oil', 10, 10.5, 'L', 5],
   ['Spice Mix', 1.2, 1.2, 'kg', 0], ['Pouches', 200, 194, 'pcs', -3],
@@ -73,32 +75,32 @@ const actuals = [
 const murukku = products.find((item) => item.name === 'Murukku 200 g');
 const production = await Production.create({
   product: murukku.id, productName: murukku.name, plannedOutput: 200, goodOutput: 188, damaged: 6,
-  yieldVariance: -6, consumption: actuals.map(([itemName, planned, actual, unit, variance]) => ({ itemName, planned, actual, unit, variance })),
-  labor: 1200, utilities: 600, materialCost: 3624, totalCost: 5424, costPerPacket: 28.85, supervisor: 'Kumar Production',
-  sellingPrice: 50, profitPerPacket: 21.15, profitMargin: 42.3,
+  yieldVariance: decimal128(-6), consumption: actuals.map(([itemName, planned, actual, unit, variance]) => ({ itemName, planned: decimal128(planned), actual: decimal128(actual), unit, variance: decimal128(variance) })),
+  labor: decimal128(1200), utilities: decimal128(600), materialCost: decimal128(3624), totalCost: decimal128(5424), costPerPacket: decimal128(28.85), supervisor: 'Kumar Production',
+  sellingPrice: decimal128(50), profitPerPacket: decimal128(21.15), profitMargin: decimal128(42.3),
 });
 for (const [name, planned, actual] of actuals) {
   const item = stocks.find((candidate) => candidate.name === name);
-  item.balance -= actual; await item.save();
-  await Movement.create({ item: item.id, itemName: item.name, type: 'Production issue', quantity: -actual, balanceAfter: item.balance, reference: `RUN-${production.id}`, user: 'Kumar Production' });
+  item.balance = decimal128(decimal(item.balance).minus(actual)); await item.save();
+  await Movement.create({ item: item.id, itemName: item.name, unit: item.unit, type: 'Production issue', quantity: decimal128(-actual), balanceAfter: item.balance, reference: `RUN-${production.id}`, user: 'Kumar Production' });
 }
 const finished = stocks.find((item) => item.name === murukku.name);
-finished.balance = 238; finished.averageRate = 22.79; await finished.save();
-await Movement.create({ item: finished.id, itemName: finished.name, type: 'Production output', quantity: 188, balanceAfter: 238, reference: `RUN-${production.id}`, user: 'Kumar Production' });
+finished.balance = decimal128(238); finished.averageRate = decimal128(22.79); await finished.save();
+await Movement.create({ item: finished.id, itemName: finished.name, unit: finished.unit, type: 'Production output', quantity: decimal128(188), balanceAfter: finished.balance, reference: `RUN-${production.id}`, user: 'Kumar Production' });
 
 async function seedSale(customer, quantity, salesperson) {
-  const taxable = quantity * murukku.price, tax = taxable * murukku.gstRate / 100;
+  const taxable = money(decimal(quantity).mul(murukku.price)), tax = lineTax(taxable, murukku.gstRate);
   const order = await Order.create({
     customer: customer.id, customerName: customer.name, customerAddress: customer.address, customerState: customer.state, customerGstin: customer.gstin, salesperson,
     lines: [{ product: murukku.id, productName: murukku.name, quantity, price: murukku.price, hsn: murukku.hsn, gstRate: murukku.gstRate }],
-    status: 'Dispatched', total: taxable + tax, shortage: 0,
+    status: 'Dispatched', total: decimal128(taxable.plus(tax)), shortage: 0,
   });
   const interstate = customer.state !== 'Tamil Nadu';
   const invoice = await Invoice.create({
     number: `SF-${new Date().getFullYear()}-${customer.name === 'Retailer A' ? '0001' : '0002'}`, order: order.id,
     customerName: customer.name, customerAddress: customer.address, customerState: customer.state, customerGstin: customer.gstin, createdBy: 'System',
-    lines: [{ productName: murukku.name, quantity, price: murukku.price, hsn: murukku.hsn, gstRate: 5, taxable, cgst: interstate ? 0 : tax / 2, sgst: interstate ? 0 : tax / 2, igst: interstate ? tax : 0, total: taxable + tax }],
-    taxable, cgst: interstate ? 0 : tax / 2, sgst: interstate ? 0 : tax / 2, igst: interstate ? tax : 0, total: taxable + tax, paid: 0, status: 'Unpaid',
+    lines: [{ productName: murukku.name, quantity, price: murukku.price, hsn: murukku.hsn, gstRate: decimal128(5), taxable: decimal128(taxable), cgst: decimal128(interstate ? 0 : tax.div(2)), sgst: decimal128(interstate ? 0 : tax.minus(tax.div(2))), igst: decimal128(interstate ? tax : 0), total: decimal128(taxable.plus(tax)) }],
+    taxable: decimal128(taxable), cgst: decimal128(interstate ? 0 : tax.div(2)), sgst: decimal128(interstate ? 0 : tax.minus(tax.div(2))), igst: decimal128(interstate ? tax : 0), total: decimal128(taxable.plus(tax)), paid: decimal128(0), status: 'Unpaid',
   });
   const stock = stocks.find((item) => item.name === murukku.name);
   stock.balance -= quantity; await stock.save();

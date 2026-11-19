@@ -59,14 +59,14 @@ The seed creates opening stock, a 60 kg flour receipt at ₹45/kg, one actual Mu
 - Retailer A invoice: ₹7,500 taxable + ₹187.50 CGST + ₹187.50 SGST = **₹7,875**
 - Retailer A outstanding after ₹4,000 payment: **₹3,875**
 - Distributor B submitted demand: 120 packets against 88 available = **32 packet shortage**
-- Production costing: ₹3,624 materials + ₹1,200 labour + ₹600 utilities = ₹5,424 total, **₹28.85 per good packet**.
+- Production costing: ₹4,055 materials + ₹1,200 labour + ₹600 utilities = ₹5,855 total, **₹31.14 per good packet**. Flour uses the unrounded weighted-average rate of ₹43.125/kg before line costs.
 
 ## Business rules
 
 - Stock is changed through receipts, production issues/output, dispatches and reasoned adjustments; there is no direct stock-balance overwrite. Each movement records its source reference, user and timestamp.
 - Production requirements scale from the selected product BOM. Actual consumption is deducted, good output is added, and consumption/yield variances over 3% are highlighted.
 - Production valuation uses **moving weighted-average cost**: `(existing quantity × existing average rate + receipt quantity × receipt unit rate) ÷ new quantity`. Production cost adds actual material cost, labour and utilities; cost per packet divides by good output. Profit per packet is selling price minus cost per packet; margin is profit divided by selling price.
-- Tamil Nadu invoices split GST equally into CGST and SGST; invoices to other states use IGST. Money totals are rounded to two decimal places.
+- Tamil Nadu invoices split GST equally into CGST and SGST; invoices to other states use IGST. Server money arithmetic uses `decimal.js` with ROUND_HALF_UP and stores monetary values as MongoDB Decimal128. Fractional operational quantities are converted to integer base units (grams, millilitres, or discrete pieces/packets/cartons) at the service boundary; display values are converted back to the configured unit.
 - A submitted order must be approved before invoice creation; an invoice must exist before dispatch. Finished stock is checked at approval and checked again at dispatch. Duplicate invoices and payments above the outstanding amount are rejected.
 - Excel and CSV downloads use the filtered report data; invoice and report PDFs are generated in the browser.
 
