@@ -61,6 +61,10 @@ The seed creates opening stock, a 60 kg flour receipt at ₹45/kg, one actual Mu
 - Distributor B submitted demand: 120 packets against 88 available = **32 packet shortage**
 - Production costing: ₹4,055 materials + ₹1,200 labour + ₹600 utilities = ₹5,855 total, **₹31.14 per good packet**. Flour uses the unrounded weighted-average rate of ₹43.125/kg before line costs.
 
+### Pouch reconciliation
+
+The BOM standard issue is 200 pouches. For the benchmark run, 188 good packets and 6 damaged packs consume 194 pouches. The service records the 6 damaged pouches with reason code `DAMAGED_PACKAGING`, then records the 6 unused standard pouches as `UNUSED_STANDARD_PACKAGING` variance returns. The return is not an additional consumption, so the ledger net is 500 − 194 = 306.
+
 ## Business rules
 
 - Stock is changed through receipts, production issues/output, dispatches and reasoned adjustments; there is no direct stock-balance overwrite. Each movement records its source reference, user and timestamp.
