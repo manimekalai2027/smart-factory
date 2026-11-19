@@ -580,7 +580,26 @@ app.get('/api/reports', allow('Accountant / Auditor', 'Owner'), async (req, res)
       Production.find({ createdAt: { $gte: from, $lte: to } }).lean(), Payment.find({ date: { $gte: from, $lte: to } }).lean(),
       Movement.find({ createdAt: { $gte: from, $lte: to } }).lean(),
     ]);
-    respond(res, { invoices, purchases, production, payments, movements });
+    const now = new Date();
+    const ageing = { '0-30': decimal(0), '31-60': decimal(0), '61-90': decimal(0), '90+': decimal(0) };
+    for (const invoice of invoices) {
+      const outstanding = decimal(invoice.total).minus(invoice.paid).max(0);
+      if (outstanding.isZero()) continue;
+      const days = Math.max(0, Math.floor((now - new Date(invoice.createdAt)) / 86400000));
+      const bucket = days <= 30 ? '0-30' : days <= 60 ? '31-60' : days <= 90 ? '61-90' : '90+';
+      ageing[bucket] = ageing[bucket].plus(outstanding);
+    }
+    respond(res, {
+      invoices, purchases, production, payments, movements,
+      gstSummary: {
+        gstr1B2BTaxable: sumMoney(invoices.map((invoice) => invoice.taxable)),
+        gstr1B2BGst: sumMoney(invoices.map((invoice) => decimal(invoice.cgst).plus(invoice.sgst).plus(invoice.igst))),
+        gstr3bCgst: sumMoney(invoices.map((invoice) => invoice.cgst)),
+        gstr3bSgst: sumMoney(invoices.map((invoice) => invoice.sgst)),
+        gstr3bIgst: sumMoney(invoices.map((invoice) => invoice.igst)),
+      },
+      receivablesAgeing: ageing,
+    });
   } catch (error) { fail(res, error); }
 });
 app.get('/api/audit', allow('Accountant / Auditor', 'Owner'), async (_req, res) => {
