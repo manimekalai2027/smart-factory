@@ -81,6 +81,18 @@ const Payment = mongoose.model('Payment', schema({
   invoice: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' }, invoiceNumber: String,
   customerName: String, amount: Decimal128, method: String, date: Date, reference: String, user: String,
 }));
+const Counter = mongoose.model('Counter', schema({
+  key: { type: String, unique: true }, value: { type: Number, default: 0 },
+}));
+const CreditNote = mongoose.model('CreditNote', schema({
+  number: { type: String, unique: true }, invoice: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
+  order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' }, amount: Decimal128,
+  reason: String, createdBy: String, lines: [{ productName: String, quantity: Number, total: Decimal128 }],
+}));
+const AuditLog = mongoose.model('AuditLog', schema({
+  user: String, entity: String, entityId: String, action: String, before: mongoose.Schema.Types.Mixed,
+  after: mongoose.Schema.Types.Mixed,
+}));
 
 const permissions = {
   'Salesman': ['overview', 'sales'],
@@ -109,6 +121,19 @@ function parseDecimal(value) {
     return parsed.isFinite() ? parsed : null;
   } catch {
     return null;
+  }
+  function financialYear(date = new Date()) {
+    const year = date.getMonth() >= 3 ? date.getFullYear() : date.getFullYear() - 1;
+    return `${year}-${String((year + 1) % 100).padStart(2, '0')}`;
+  }
+  async function nextNumber(key, prefix) {
+    const counter = await Counter.findOneAndUpdate(
+      { key }, { $inc: { value: 1 } }, { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    return `${prefix}/${String(counter.value).padStart(4, '0')}`;
+  }
+  async function audit(req, entity, entityId, action, before, after) {
+    await AuditLog.create({ user: req.user.name, entity, entityId: String(entityId), action, before, after });
   }
 }
 const fail = (res, error) => {
@@ -210,10 +235,11 @@ app.patch('/api/orders/:id/review', allow('Factory Admin', 'Owner'), async (req,
   try {
     const order = await Order.findById(req.params.id);
     if (!order || order.status !== 'Submitted') return res.status(400).json({ message: 'Only submitted orders can be reviewed.' });
+    const beforeReview = order.toObject();
     if (req.body.action === 'reject') {
       order.status = 'Rejected'; order.note = String(req.body.note || 'Rejected by admin');
       order.reviewedBy = req.user.name; order.reviewedAt = new Date();
-      await order.save(); return respond(res, order);
+      await order.save(); await audit(req, 'Order', order.id, 'review', beforeReview, order.toObject()); return respond(res, order);
     }
     if (req.body.lines) {
       if (!Array.isArray(req.body.lines) || req.body.lines.length !== order.lines.length) return res.status(400).json({ message: 'Order line count cannot be changed during review.' });
@@ -246,7 +272,7 @@ app.patch('/api/orders/:id/review', allow('Factory Admin', 'Owner'), async (req,
     }
     if (req.body.action !== 'approve') return res.status(400).json({ message: 'Choose approve or reject.' });
     order.status = 'Approved'; order.reviewedBy = req.user.name; order.reviewedAt = new Date();
-    await order.save(); respond(res, order);
+    await order.save(); await audit(req, 'Order', order.id, 'review', beforeReview, order.toObject()); respond(res, order);
   } catch (error) { fail(res, error); }
 });
 app.post('/api/orders/:id/invoice', allow('Factory Admin', 'Owner'), async (req, res) => {
@@ -271,7 +297,7 @@ app.post('/api/orders/:id/invoice', allow('Factory Admin', 'Owner'), async (req,
     const taxable = sumMoney(taxableLines), cgst = sumMoney(cgstLines);
     const sgst = sumMoney(sgstLines), igst = sumMoney(igstLines);
     const invoice = await Invoice.create({
-      number: `SF-${new Date().getFullYear()}-${String(await Invoice.countDocuments() + 1).padStart(4, '0')}`,
+      number: await nextNumber(`invoice:${financialYear()}`, `TN/${financialYear()}`),
       order: order.id, customerName: order.customerName, customerAddress: order.customerAddress, customerState: order.customerState, customerGstin: order.customerGstin, createdBy: req.user.name,
       lines, taxable: decimal128(taxable), cgst: decimal128(cgst), sgst: decimal128(sgst), igst: decimal128(igst),
       total: decimal128(sumMoney([taxable, cgst, sgst, igst])),
@@ -308,6 +334,44 @@ app.post('/api/orders/:id/dispatch', allow('Factory Admin', 'Owner'), async (req
     }
     dispatchOrder.status = 'Dispatched'; dispatchOrder.dispatchedBy = req.user.name; dispatchOrder.dispatchedAt = new Date();
     await dispatchOrder.save(); respond(res, { order: dispatchOrder, invoice });
+  } catch (error) { fail(res, error); }
+});
+
+app.post('/api/invoices/:id/cancel', allow('Factory Admin', 'Owner'), async (req, res) => {
+  try {
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) return res.status(404).json({ message: 'Invoice not found.' });
+    if (invoice.status === 'Cancelled') return res.status(409).json({ message: 'This invoice is already cancelled.' });
+    const order = await Order.findById(invoice.order);
+    if (!order) return res.status(400).json({ message: 'The invoice order is missing.' });
+    const before = invoice.toObject();
+    const restored = [];
+    if (order.status === 'Dispatched') {
+      for (const line of order.lines) {
+        const stock = await Inventory.findOneAndUpdate(
+          { name: line.productName, category: 'Finished goods' },
+          { $inc: { balance: decimal128(line.quantity) } }, { new: true },
+        );
+        if (!stock) return res.status(400).json({ message: `Finished goods inventory for ${line.productName} is missing.` });
+        restored.push({ productName: line.productName, quantity: line.quantity, total: decimal128(line.price).mul(line.quantity) });
+        await Movement.create({
+          item: stock.id, itemName: stock.name, unit: stock.unit, type: 'Credit note reversal',
+          quantity: decimal128(line.quantity), balanceAfter: stock.balance, reference: `CREDIT-${invoice.id}`,
+          sourceType: 'CreditNote', sourceId: String(invoice.id), user: req.user.name,
+        });
+      }
+    }
+    invoice.status = 'Cancelled';
+    await invoice.save();
+    order.status = 'Cancelled';
+    await order.save();
+    const creditNote = await CreditNote.create({
+      number: await nextNumber(`credit:${financialYear()}`, `CN/${financialYear()}`),
+      invoice: invoice.id, order: order.id, amount: invoice.total, reason: req.body.reason || 'Invoice cancelled',
+      createdBy: req.user.name, lines: restored,
+    });
+    await audit(req, 'Invoice', invoice.id, 'cancel', before, invoice.toObject());
+    respond(res, { invoice, order, creditNote });
   } catch (error) { fail(res, error); }
 });
 
@@ -430,6 +494,7 @@ app.post('/api/production', allow('Production Supervisor', 'Owner'), async (req,
       profitPerPacket: decimal128(costing.profitPerPacket), profitMargin: decimal128(costing.profitMargin),
     });
     await Movement.create({ item: finishedUpdated.id, itemName: finishedUpdated.name, unit: finishedUpdated.unit, type: 'Production output', quantity: decimal128(goodOutput), balanceAfter: finishedUpdated.balance, reference: `RUN-${run.id}`, user: req.user.name });
+    await audit(req, 'ProductionRun', run.id, 'create', null, run.toObject());
     respond(res, run, 201);
   } catch (error) { fail(res, error); }
 });
