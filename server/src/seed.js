@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-import { decimal, decimal128, lineTax, money, productionCost, splitGst, weightedAverageRate } from './lib/money.js';
+import { decimal, decimal128, extendedCost, lineTax, money, productionCost, weightedAverageRate } from './lib/money.js';
 
 const schema = (definition) => new mongoose.Schema(definition, { timestamps: true });
 const User = mongoose.model('User', schema({ name: String, email: { type: String, unique: true }, password: String, role: String }));
@@ -45,11 +45,11 @@ const products = await Product.insertMany([
   ] },
 ]);
 const stockSeed = [
-  ['Flour', 'Raw materials', 'kg', 100, 0, 45, 50],
-  ['Cooking Oil', 'Raw materials', 'L', 30, 0, 110, 10],
-  ['Spice Mix', 'Raw materials', 'kg', 5, 0, 180, 2],
-  ['Pouches', 'Packaging materials', 'pcs', 500, 0, 1.5, 100],
-  ['Cartons', 'Packaging materials', 'pcs', 30, 0, 18, 10],
+  ['Flour', 'Raw materials', 'kg', 100, 0, 42, 50],
+  ['Cooking Oil', 'Raw materials', 'L', 30, 0, 140, 10],
+  ['Spice Mix', 'Raw materials', 'kg', 5, 0, 200, 2],
+  ['Pouches', 'Packaging materials', 'pcs', 500, 0, 2.5, 100],
+  ['Cartons', 'Packaging materials', 'pcs', 30, 0, 15, 10],
   ['Murukku 200 g', 'Finished goods', 'packets', 50, 0, 0, 40],
   ['Mixture 200 g', 'Finished goods', 'packets', 0, 0, 0, 20],
   ['Potato Chips 100 g', 'Finished goods', 'packets', 0, 0, 0, 20],
@@ -64,7 +64,7 @@ const customers = await Customer.insertMany([
 ]);
 const supplier = await Supplier.create({ name: 'Sri Lakshmi Flour Mills', gstin: '33AABFS1234D1ZA', state: 'Tamil Nadu', phone: '+91 422 221 1000', address: 'Coimbatore, Tamil Nadu' });
 const flour = stocks.find((item) => item.name === 'Flour');
-flour.balance = decimal128(160); flour.averageRate = decimal128(45); await flour.save();
+flour.balance = decimal128(160); flour.averageRate = decimal128(weightedAverageRate(100, 42, 60, 45)); await flour.save();
 const purchase = await Purchase.create({ supplierName: supplier.name, itemName: 'Flour', quantity: decimal128(60), unitRate: decimal128(45), total: decimal128(2700), date: new Date(), user: 'System' });
 await Movement.create({ item: flour.id, itemName: 'Flour', unit: flour.unit, type: 'Purchase receipt', quantity: decimal128(60), balanceAfter: flour.balance, unitRate: decimal128(45), reference: `PURCHASE-${purchase.id}`, user: 'System' });
 const actuals = [
@@ -73,11 +73,20 @@ const actuals = [
   ['Cartons', 10, 9, 'pcs', -10],
 ];
 const murukku = products.find((item) => item.name === 'Murukku 200 g');
+const materialCosting = productionCost({
+  materialCosts: actuals.map(([itemName, , actual]) => {
+    const stock = stocks.find((item) => item.name === itemName);
+    return extendedCost(stock.averageRate, actual);
+  }),
+  labor: 1200, utilities: 600, goodOutput: 188, sellingPrice: 50,
+});
 const production = await Production.create({
   product: murukku.id, productName: murukku.name, plannedOutput: 200, goodOutput: 188, damaged: 6,
   yieldVariance: decimal128(-6), consumption: actuals.map(([itemName, planned, actual, unit, variance]) => ({ itemName, planned: decimal128(planned), actual: decimal128(actual), unit, variance: decimal128(variance) })),
-  labor: decimal128(1200), utilities: decimal128(600), materialCost: decimal128(3624), totalCost: decimal128(5424), costPerPacket: decimal128(28.85), supervisor: 'Kumar Production',
-  sellingPrice: decimal128(50), profitPerPacket: decimal128(21.15), profitMargin: decimal128(42.3),
+  labor: decimal128(materialCosting.laborCost), utilities: decimal128(materialCosting.utilitiesCost),
+  materialCost: decimal128(materialCosting.materialCost), totalCost: decimal128(materialCosting.totalCost),
+  costPerPacket: decimal128(materialCosting.unitCost), sellingPrice: decimal128(materialCosting.selling),
+  profitPerPacket: decimal128(materialCosting.profitPerPacket), profitMargin: decimal128(materialCosting.profitMargin),
 });
 for (const [name, planned, actual] of actuals) {
   const item = stocks.find((candidate) => candidate.name === name);
