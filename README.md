@@ -1,41 +1,41 @@
 # SmartFactory ERP
 
-A full-stack order-to-audit prototype for a South Indian packaged-food factory. The React/Vite client uses an Express API backed by MongoDB; JWT authentication and server-side role checks protect the business actions.
+SmartFactory ERP is a React/Vite, Express, MongoDB and Mongoose prototype for a South Indian packaged-food manufacturer. It connects sales, GST billing, production/BOM consumption, inventory, costing, payments and audit reporting. `decimal.js` plus MongoDB Decimal128 provide exact money arithmetic; JWT and server-side role checks protect operations.
 
-## Requirements
+## Setup
 
-- Node.js 18+
-- MongoDB running locally, or a MongoDB connection string
+### Local
 
-## Run locally
+Requirements: Node.js 18+ and MongoDB.
 
-1. Copy `server/.env.example` to `server/.env` and set `MONGODB_URI` and a private `JWT_SECRET`.
-2. Optionally copy `client/.env.example` to `client/.env` and set the API URL.
-3. From the project root, install the root and workspace dependencies:
+```sh
+npm install
+npm --prefix server install
+npm --prefix client install
+copy server\.env.example server\.env
+npm run seed
+npm run dev
+```
 
-   ```sh
-   npm install
-   npm --prefix server install
-   npm --prefix client install
-   ```
+The client runs at `http://localhost:5173` and the API at `http://localhost:4000`. Set `VITE_API_URL` in `client/.env` when needed.
 
-4. Load the benchmark dataset (this resets the SmartFactory collections):
+`seed` creates users, products/BOMs, customers, supplier master data and opening stock only. With the API running on a seeded database, run the complete transaction scenario with:
 
-   ```sh
-   npm run seed
-   ```
+```sh
+npm run benchmark
+```
 
-5. Start the API and client:
+### Docker
 
-   ```sh
-   npm run dev
-   ```
+```sh
+docker compose up --build
+```
 
-   The client is at `http://localhost:5173`; the API listens on `http://localhost:4000`. Set `VITE_API_URL` in `client/.env` if the API is hosted elsewhere.
+The client is at `http://localhost:5173`, the API at `http://localhost:4000`, and MongoDB data is stored in the `mongo-data` volume. Set `JWT_SECRET` in the shell or a Compose `.env` file for production.
 
 ## Demo logins
 
-All demo accounts use `Factory@123`.
+All accounts use `Factory@123`.
 
 | Role | Email |
 |---|---|
@@ -45,38 +45,60 @@ All demo accounts use `Factory@123`.
 | Production Supervisor | `production@smartfactory.local` |
 | Accountant / Auditor (read-only) | `accounts@smartfactory.local` |
 
-Roles receive separate navigation and the API independently enforces write permissions. The accountant/auditor account is read-only.
+## Features
 
-## Benchmark walkthrough
+**Must-have:** role-based login, sales orders, approval and shortage checks, GST invoices, dispatch movements, BOM production, actual-vs-planned variance, weighted-average costing, purchases, payments, stock movements, reports, CSV/Excel/PDF browser exports, credit-note reversal, audit records, seed and API benchmark runner.
 
-The seed creates opening stock, a 60 kg flour receipt at ₹45/kg, one actual Murukku run, a Tamil Nadu invoice and a Karnataka shortage order. Expected starting state:
+**Should-have:** responsive role dashboards, customer/product summaries, GSTR-1 B2B/GSTR-3B totals, receivables ageing buckets, financial-year invoice numbers and Docker deployment.
 
-- Flour: 100 + 60 − 40 = **120 kg**
-- Cooking oil: 30 − 10.5 = **19.5 L** (**+5%** actual-vs-standard variance)
-- Pouches: 500 − 194 = **306 pieces** (188 good packets and 6 damaged packs)
-- Finished Murukku: 50 + 188 − 150 = **88 packets**
-- Production yield: (188 − 200) / 200 = **−6%**
-- Retailer A invoice: ₹7,500 taxable + ₹187.50 CGST + ₹187.50 SGST = **₹7,875**
-- Retailer A outstanding after ₹4,000 payment: **₹3,875**
-- Distributor B submitted demand: 120 packets against 88 available = **32 packet shortage**
-- Production costing: ₹4,055 materials + ₹1,200 labour + ₹600 utilities = ₹5,855 total, **₹31.14 per good packet**. Flour uses the unrounded weighted-average rate of ₹43.125/kg before line costs.
+**Stretch / not built:** multi-location stock, full accounting ledger and bank reconciliation, automated GST filing submission, background job queues, and production-grade MongoDB transactions/locking across every multi-document operation.
 
-### Pouch reconciliation
+## Business assumptions
 
-The BOM standard issue is 200 pouches. For the benchmark run, 188 good packets and 6 damaged packs consume 194 pouches. The service records the 6 damaged pouches with reason code `DAMAGED_PACKAGING`, then records the 6 unused standard pouches as `UNUSED_STANDARD_PACKAGING` variance returns. The return is not an additional consumption, so the ledger net is 500 − 194 = 306.
+- Money is stored as Decimal128 and calculated with `decimal.js` ROUND_HALF_UP. Monetary lines are rounded to paise before totals are summed.
+- Operational fractional quantities are converted to integer grams or millilitres; pieces, packets and cartons remain discrete units.
+- Inventory uses moving weighted average: `(old quantity × old rate + receipt quantity × receipt rate) / new quantity`. The flour rate is retained as ₹43.125/kg before production costing.
+- Labour and utilities are assigned to the production run and included in its cost per good packet; no separate overhead pool is allocated.
+- Tamil Nadu (state code 33) splits GST equally into CGST and SGST; other states use IGST.
+- Invoice numbers use `TN/YYYY-YY/NNNN`, with an atomic MongoDB counter per financial year.
+- Pouch reconciliation is explicit: standard 200, 188 good + 6 damaged = 194 consumed. Damage is reason-coded and six unused standard pouches are recorded as a variance return, so closing stock is 306.
+- Stock changes are represented by signed movements with a source reference; direct balance-setting endpoints are not exposed.
 
-## Business rules
+## Benchmark results
 
-- Stock is changed through receipts, production issues/output, dispatches and reasoned adjustments; there is no direct stock-balance overwrite. Each movement records its source reference, user and timestamp.
-- Production requirements scale from the selected product BOM. Actual consumption is deducted, good output is added, and consumption/yield variances over 3% are highlighted.
-- Production valuation uses **moving weighted-average cost**: `(existing quantity × existing average rate + receipt quantity × receipt unit rate) ÷ new quantity`. Production cost adds actual material cost, labour and utilities; cost per packet divides by good output. Profit per packet is selling price minus cost per packet; margin is profit divided by selling price.
-- Tamil Nadu invoices split GST equally into CGST and SGST; invoices to other states use IGST. Server money arithmetic uses `decimal.js` with ROUND_HALF_UP and stores monetary values as MongoDB Decimal128. Fractional operational quantities are converted to integer base units (grams, millilitres, or discrete pieces/packets/cartons) at the service boundary; display values are converted back to the configured unit.
-- A submitted order must be approved before invoice creation; an invoice must exist before dispatch. Finished stock is checked at approval and checked again at dispatch. Duplicate invoices and payments above the outstanding amount are rejected.
-- Excel and CSV downloads use the filtered report data; invoice and report PDFs are generated in the browser.
+Run `npm run seed`, start the API, then run `npm run benchmark`.
+
+| Expected | Actual in automated scenario | Result |
+|---|---:|---|
+| Flour closing 120 kg | 120 kg | Pass |
+| Oil closing 19.5 L | 19.5 L | Pass |
+| Pouches closing 306 | 306 | Pass |
+| Finished goods 238, then 88 | 238, then 88 | Pass |
+| Yield variance -6% | -6% | Pass |
+| Oil variance +5% | +5% | Pass |
+| Retailer A invoice ₹7,875 | ₹7,875 | Pass |
+| Retailer A outstanding ₹3,875 | ₹3,875 | Pass |
+| Distributor B shortage 32 packets | 32 packets | Pass |
+| Materials ₹4,055; total ₹5,855 | ₹4,055; ₹5,855 | Pass |
+| Cost per good packet ₹31.14 | ₹31.14 | Pass |
+
+## Tests
+
+```sh
+npm test
+npm run build
+```
+
+The server tests cover exact money, unit conversions, weighted-average costing, GST split/rounding, ledger reconciliation, variance tolerance, and benchmark arithmetic. Docker files are provided, but Docker execution must be validated on a machine with Docker installed.
+
+## Known gaps
+
+The prototype does not yet provide full double-entry accounting, multi-warehouse transfers, external GST filing, or database transactions spanning every stock and document write. The benchmark runner requires a running API and a MongoDB instance.
 
 ## Project layout
 
 ```text
-client/       React, Vite, Tailwind, reports and PDF/Excel exports
-server/       Express API, MongoDB models, authentication and seed data
+client/       React/Vite UI, dashboards and exports
+server/       Express API, Mongoose models, services, seed and benchmark
+docs/         design note and data-flow documentation
 ```
