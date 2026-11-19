@@ -62,72 +62,9 @@ const customers = await Customer.insertMany([
   { name: 'Distributor B', type: 'Distributor', state: 'Karnataka', gstin: '29AABCU9603R1ZQ', address: '44 Wholesale Market, Bengaluru, Karnataka', phone: '+91 98400 10002' },
   { name: 'Retailer C', type: 'Retailer', state: 'Tamil Nadu', gstin: '33AABCU9603R1ZN', address: '8 Bazaar Street, Madurai, Tamil Nadu', phone: '+91 98400 10003' },
 ]);
-const supplier = await Supplier.create({ name: 'Sri Lakshmi Flour Mills', gstin: '33AABFS1234D1ZA', state: 'Tamil Nadu', phone: '+91 422 221 1000', address: 'Coimbatore, Tamil Nadu' });
-const flour = stocks.find((item) => item.name === 'Flour');
-flour.balance = decimal128(160); flour.averageRate = decimal128(weightedAverageRate(100, 42, 60, 45)); await flour.save();
-const purchase = await Purchase.create({ supplierName: supplier.name, itemName: 'Flour', quantity: decimal128(60), unitRate: decimal128(45), total: decimal128(2700), date: new Date(), user: 'System' });
-await Movement.create({ item: flour.id, itemName: 'Flour', unit: flour.unit, type: 'Purchase receipt', quantity: decimal128(60), balanceAfter: flour.balance, unitRate: decimal128(45), reference: `PURCHASE-${purchase.id}`, user: 'System' });
-const actuals = [
-  ['Flour', 40, 40, 'kg', 0], ['Cooking Oil', 10, 10.5, 'L', 5],
-  ['Spice Mix', 1.2, 1.2, 'kg', 0], ['Pouches', 200, 194, 'pcs', -3],
-  ['Cartons', 10, 9, 'pcs', -10],
-];
-const murukku = products.find((item) => item.name === 'Murukku 200 g');
-const materialCosting = productionCost({
-  materialCosts: actuals.map(([itemName, , actual]) => {
-    const stock = stocks.find((item) => item.name === itemName);
-    return extendedCost(stock.averageRate, actual);
-  }),
-  labor: 1200, utilities: 600, goodOutput: 188, sellingPrice: 50,
-});
-const production = await Production.create({
-  product: murukku.id, productName: murukku.name, plannedOutput: 200, goodOutput: 188, damaged: 6,
-  yieldVariance: decimal128(-6), consumption: actuals.map(([itemName, planned, actual, unit, variance]) => ({ itemName, planned: decimal128(planned), actual: decimal128(actual), unit, variance: decimal128(variance) })),
-  labor: decimal128(materialCosting.laborCost), utilities: decimal128(materialCosting.utilitiesCost),
-  materialCost: decimal128(materialCosting.materialCost), totalCost: decimal128(materialCosting.totalCost),
-  costPerPacket: decimal128(materialCosting.unitCost), sellingPrice: decimal128(materialCosting.selling),
-  profitPerPacket: decimal128(materialCosting.profitPerPacket), profitMargin: decimal128(materialCosting.profitMargin),
-});
-for (const [name, planned, actual] of actuals) {
-  const item = stocks.find((candidate) => candidate.name === name);
-  item.balance = decimal128(decimal(item.balance).minus(actual)); await item.save();
-  await Movement.create({ item: item.id, itemName: item.name, unit: item.unit, type: 'Production issue', quantity: decimal128(-actual), balanceAfter: item.balance, reference: `RUN-${production.id}`, user: 'Kumar Production' });
-}
-const finished = stocks.find((item) => item.name === murukku.name);
-finished.balance = decimal128(238); finished.averageRate = decimal128(22.79); await finished.save();
-await Movement.create({ item: finished.id, itemName: finished.name, unit: finished.unit, type: 'Production output', quantity: decimal128(188), balanceAfter: finished.balance, reference: `RUN-${production.id}`, user: 'Kumar Production' });
+await Supplier.create({ name: 'Sri Lakshmi Flour Mills', gstin: '33AABFS1234D1ZA', state: 'Tamil Nadu', phone: '+91 422 221 1000', address: 'Coimbatore, Tamil Nadu' });
 
-async function seedSale(customer, quantity, salesperson) {
-  const taxable = money(decimal(quantity).mul(murukku.price)), tax = lineTax(taxable, murukku.gstRate);
-  const order = await Order.create({
-    customer: customer.id, customerName: customer.name, customerAddress: customer.address, customerState: customer.state, customerGstin: customer.gstin, salesperson,
-    lines: [{ product: murukku.id, productName: murukku.name, quantity, price: murukku.price, hsn: murukku.hsn, gstRate: murukku.gstRate }],
-    status: 'Dispatched', total: decimal128(taxable.plus(tax)), shortage: 0,
-  });
-  const interstate = customer.state !== 'Tamil Nadu';
-  const invoice = await Invoice.create({
-    number: `SF-${new Date().getFullYear()}-${customer.name === 'Retailer A' ? '0001' : '0002'}`, order: order.id,
-    customerName: customer.name, customerAddress: customer.address, customerState: customer.state, customerGstin: customer.gstin, createdBy: 'System',
-    lines: [{ productName: murukku.name, quantity, price: murukku.price, hsn: murukku.hsn, gstRate: decimal128(5), taxable: decimal128(taxable), cgst: decimal128(interstate ? 0 : tax.div(2)), sgst: decimal128(interstate ? 0 : tax.minus(tax.div(2))), igst: decimal128(interstate ? tax : 0), total: decimal128(taxable.plus(tax)) }],
-    taxable: decimal128(taxable), cgst: decimal128(interstate ? 0 : tax.div(2)), sgst: decimal128(interstate ? 0 : tax.minus(tax.div(2))), igst: decimal128(interstate ? tax : 0), total: decimal128(taxable.plus(tax)), paid: decimal128(0), status: 'Unpaid',
-  });
-  const stock = stocks.find((item) => item.name === murukku.name);
-  stock.balance -= quantity; await stock.save();
-  await Movement.create({ item: stock.id, itemName: stock.name, type: 'Sales dispatch', quantity: -quantity, balanceAfter: stock.balance, reference: `ORDER-${order.id}`, user: 'Meena Admin' });
-  return { order, invoice };
-}
-const retailerSale = await seedSale(customers.find((customer) => customer.name === 'Retailer A'), 150, 'Arun Sales');
-const distributor = customers.find((customer) => customer.name === 'Distributor B');
-await Order.create({
-  customer: distributor.id, customerName: distributor.name, customerState: distributor.state, customerGstin: distributor.gstin, salesperson: 'Arun Sales',
-  lines: [{ product: murukku.id, productName: murukku.name, quantity: 120, price: 50, hsn: murukku.hsn, gstRate: 5 }],
-  status: 'Submitted', total: 6300, shortage: 32, note: '32 packets short; waiting for next production run.',
-});
-const invoice = retailerSale.invoice;
-invoice.paid = 4000; invoice.status = 'Part-paid'; await invoice.save();
-await Payment.create({ invoice: invoice.id, invoiceNumber: invoice.number, customerName: invoice.customerName, amount: 4000, method: 'Bank transfer', date: new Date(), reference: 'DEMO-RETAILER-A-4000', user: 'System' });
-
-console.log('Seed complete: benchmark stock, production, sales, GST invoices and payment loaded.');
+console.log('Seed complete: master data, users, customers, supplier and opening balances loaded.');
 console.log('Logins: sales@smartfactory.local, admin@smartfactory.local, production@smartfactory.local, accounts@smartfactory.local, owner@smartfactory.local');
 console.log('Password for every demo user: Factory@123');
 await mongoose.disconnect();
