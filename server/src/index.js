@@ -44,7 +44,8 @@ const Inventory = mongoose.model('Inventory', schema({
 const Movement = mongoose.model('Movement', schema({
   item: { type: mongoose.Schema.Types.ObjectId, ref: 'Inventory', required: true },
   itemName: String, unit: String, type: String, quantity: Decimal128, balanceAfter: Decimal128,
-  unitRate: Decimal128, reference: String, reasonCode: String, note: String, user: String,
+  unitRate: Decimal128, reference: String, sourceType: String, sourceId: String, batch: String,
+  reasonCode: String, note: String, user: String,
 }));
 const Order = mongoose.model('Order', schema({
   customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' }, customerName: String,
