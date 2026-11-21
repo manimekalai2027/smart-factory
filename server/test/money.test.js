@@ -18,6 +18,18 @@ test('Decimal128 conversion preserves decimal text', () => {
   assert.equal(decimal128('5855.00').toString(), '5855');
 });
 
+test('Decimal128 values are normalized before arithmetic and comparison', () => {
+  const balance = decimal(decimal128('10'));
+  const reorderLevel = decimal(decimal128('10'));
+  assert.equal(balance.lte(reorderLevel), true);
+  assert.equal(decimal(decimal128('25')).minus(decimal(decimal128('8'))).toString(), '17');
+  assert.equal(extendedCost(decimal128('30'), decimal128('10')).toFixed(2), '300.00');
+  assert.equal(weightedAverageRate(
+    decimal128('100'), decimal128('42'), decimal128('60'), decimal128('45'),
+  ).toString(), '43.125');
+  assert.equal(lineTax(decimal128('100'), decimal128('5')).toFixed(2), '5.00');
+});
+
 test('weighted-average rate keeps the half-paisa average exact', () => {
   assert.equal(weightedAverageRate(100, '42', 60, '45').toString(), '43.125');
   assert.equal(extendedCost(weightedAverageRate(100, '42', 60, '45'), 40).toFixed(2), '1725.00');

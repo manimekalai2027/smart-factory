@@ -185,8 +185,8 @@ app.get('/api/bootstrap', async (req, res) => {
     const visibleProducts = productionOnly ? products.map(({ price, ...product }) => product) : products;
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const todayOrders = visibleOrders.filter((o) => new Date(o.createdAt) >= today);
-    const outstanding = sumMoney(visibleInvoices.map((i) => decimal(i.total).minus(i.paid).max(0)));
-    const alerts = visibleInventory.filter((i) => decimal(i.balance).lte(i.reorderLevel) && decimal(i.reorderLevel).gt(0));
+    const outstanding = sumMoney(visibleInvoices.map((i) => decimal(i.total).minus(decimal(i.paid)).max(0)));
+    const alerts = visibleInventory.filter((i) => decimal(i.balance).lte(decimal(i.reorderLevel)) && decimal(i.reorderLevel).gt(0));
     const shortageOrders = visibleOrders.filter((o) => o.shortage > 0 && o.status !== 'Rejected');
     respond(res, {
       user: req.user, products: visibleProducts, customers: visibleCustomers, inventory: visibleInventory,
@@ -251,7 +251,7 @@ app.patch('/api/orders/:id/review', allow('Factory Admin', 'Owner'), async (req,
         lineIndex: index, productName: order.lines[index].productName,
         quantityBefore: order.lines[index].quantity, quantityAfter: update.quantity,
         priceBefore: order.lines[index].price, priceAfter: decimal128(money(update.price)),
-      })).filter((change) => change.quantityBefore !== change.quantityAfter || !decimal(change.priceBefore).eq(change.priceAfter));
+      })).filter((change) => change.quantityBefore !== change.quantityAfter || !decimal(change.priceBefore).eq(decimal(change.priceAfter)));
       order.reviewChanges.push(...changes);
       order.lines.forEach((line, index) => {
         line.quantity = updates[index].quantity; line.price = decimal128(money(updates[index].price));
@@ -583,7 +583,7 @@ app.get('/api/reports', allow('Accountant / Auditor', 'Owner'), async (req, res)
     const now = new Date();
     const ageing = { '0-30': decimal(0), '31-60': decimal(0), '61-90': decimal(0), '90+': decimal(0) };
     for (const invoice of invoices) {
-      const outstanding = decimal(invoice.total).minus(invoice.paid).max(0);
+      const outstanding = decimal(invoice.total).minus(decimal(invoice.paid)).max(0);
       if (outstanding.isZero()) continue;
       const days = Math.max(0, Math.floor((now - new Date(invoice.createdAt)) / 86400000));
       const bucket = days <= 30 ? '0-30' : days <= 60 ? '31-60' : days <= 90 ? '61-90' : '90+';
@@ -593,7 +593,7 @@ app.get('/api/reports', allow('Accountant / Auditor', 'Owner'), async (req, res)
       invoices, purchases, production, payments, movements,
       gstSummary: {
         gstr1B2BTaxable: sumMoney(invoices.map((invoice) => invoice.taxable)),
-        gstr1B2BGst: sumMoney(invoices.map((invoice) => decimal(invoice.cgst).plus(invoice.sgst).plus(invoice.igst))),
+        gstr1B2BGst: sumMoney(invoices.map((invoice) => decimal(invoice.cgst).plus(decimal(invoice.sgst)).plus(decimal(invoice.igst)))),
         gstr3bCgst: sumMoney(invoices.map((invoice) => invoice.cgst)),
         gstr3bSgst: sumMoney(invoices.map((invoice) => invoice.sgst)),
         gstr3bIgst: sumMoney(invoices.map((invoice) => invoice.igst)),

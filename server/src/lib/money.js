@@ -32,19 +32,22 @@ export function sumMoney(values) {
 }
 
 export function extendedCost(unitRate, quantity, quantityPerRateUnit = 1) {
-  if (decimal(quantityPerRateUnit).lte(0)) throw new RangeError('Rate-unit conversion must be positive.');
-  return money(decimal(unitRate).mul(quantity).div(quantityPerRateUnit));
+  const rateUnitQuantity = decimal(quantityPerRateUnit);
+  if (rateUnitQuantity.lte(0)) throw new RangeError('Rate-unit conversion must be positive.');
+  return money(decimal(unitRate).mul(decimal(quantity)).div(rateUnitQuantity));
 }
 
 export function weightedAverageRate(oldQuantity, oldRate, receivedQuantity, receivedRate) {
-  const totalQuantity = decimal(oldQuantity).plus(receivedQuantity);
+  const totalQuantity = decimal(oldQuantity).plus(decimal(receivedQuantity));
   if (totalQuantity.isZero()) return new Decimal(0);
   if (totalQuantity.isNegative()) throw new RangeError('Weighted-average quantity cannot be negative.');
-  return decimal(oldQuantity).mul(oldRate).plus(decimal(receivedQuantity).mul(receivedRate)).div(totalQuantity);
+  return decimal(oldQuantity).mul(decimal(oldRate))
+    .plus(decimal(receivedQuantity).mul(decimal(receivedRate)))
+    .div(totalQuantity);
 }
 
 export function lineTax(taxable, ratePercent) {
-  return money(decimal(taxable).mul(ratePercent).div(100));
+  return money(decimal(taxable).mul(decimal(ratePercent)).div(100));
 }
 
 export function splitGst(lineTaxAmount, interstate) {
