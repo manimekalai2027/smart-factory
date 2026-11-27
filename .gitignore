@@ -5,5 +5,5 @@ client/dist/
 server/.env
 client/.env
 .DS_Store
-server/.env 
+
 
