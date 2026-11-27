@@ -15,7 +15,11 @@ const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret || jwtSecret === 'replace-this-with-a-long-random-secret') {
   throw new Error('Set JWT_SECRET in server/.env before starting the API.');
 }
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }));
+const clientOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+app.use(cors({ origin: clientOrigins }));
 app.use(express.json({ limit: '1mb' }));
 
 const schema = (definition, options = {}) => new mongoose.Schema(definition, {

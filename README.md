@@ -33,6 +33,17 @@ docker compose up --build
 
 The client is at `http://localhost:5173`, the API at `http://localhost:4000`, and MongoDB data is stored in the `mongo-data` volume. Set `JWT_SECRET` in the shell or a Compose `.env` file for production.
 
+### Production deployment
+
+GitHub Pages hosts the React frontend only. The Express API needs a separate host and a MongoDB instance reachable from that host.
+
+1. Create a Render Blueprint from this repository. `render.yaml` defines the API service; provide `MONGODB_URI` privately in Render using a hosted MongoDB connection string. Render generates `JWT_SECRET`.
+2. Set the GitHub repository variable `VITE_API_URL` to the Render API base URL, including `/api` (for example, `https://your-api.onrender.com/api`).
+3. In repository Settings > Pages, choose GitHub Actions as the build and deployment source.
+4. Push to `main` to build and deploy the frontend to `https://manimekalai2027.github.io/smart-factory/`.
+
+The deployment workflow fails if `VITE_API_URL` is not set. Keep production credentials in the hosting provider, never in the repository.
+
 ## Demo logins
 
 All accounts use `Factory@123`.

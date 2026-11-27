@@ -35,7 +35,14 @@ jobs:
         run: npm ci --prefix client
 
       - name: Build frontend
-        run: npm run build --prefix client
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          if [ -z "$VITE_API_URL" ]; then
+            echo "::error::Set the repository variable VITE_API_URL to the deployed API base URL."
+            exit 1
+          fi
+          npm run build --prefix client
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
